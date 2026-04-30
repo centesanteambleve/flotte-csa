@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<link rel="manifest" href="manifest.json">
 <title>Inspection Flotte - CSA Ambleve</title>
 <style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--green:#0F6E56;--green-light:#E1F5EE;--green-dark:#085041;--blue:#185FA5;--blue-light:#E6F1FB;--amber:#BA7517;--amber-light:#FFF7E0;--red:#A32D2D;--red-light:#FFECEC;--gray:#F5F5F4;--text:#1A1A18;--text2:#666660;--text3:#999990;--border:#E0E0DC;--white:#FFFFFF;--radius:10px;--radius-lg:14px}
@@ -70,16 +71,28 @@ input[type=file]{display:none}
 .zlbl{pointer-events:none;font-size:9px;font-weight:700;fill:#BBBBBB;dominant-baseline:middle;text-anchor:middle}
 .hist-card{background:var(--white);border-radius:var(--radius-lg);padding:12px 14px;border:1px solid var(--border);margin-bottom:8px;cursor:pointer}
 .hist-card:active{background:var(--gray)}
-.sync-box{background:var(--blue-light);border:1px solid #185FA533;border-radius:var(--radius-lg);padding:12px 14px;margin-bottom:16px}
-.sync-box p{font-size:13px;color:var(--blue);margin-bottom:10px;font-weight:500}</style>
+/* Sync status bar */
+#sync-bar{position:fixed;top:0;left:0;right:0;z-index:100;padding:6px 16px;font-size:12px;font-weight:600;text-align:center;transform:translateY(-40px);transition:transform .3s ease}
+#sync-bar.show{transform:translateY(0)}
+#sync-bar.syncing{background:#185FA5;color:white}
+#sync-bar.synced{background:#0F6E56;color:white}
+#sync-bar.offline{background:#BA7517;color:white}
+#sync-bar.error{background:#A32D2D;color:white}
+/* Config warning */
+.config-warn{background:#FFF7E0;border:1px solid #BA751744;border-radius:var(--radius-lg);padding:14px;margin-bottom:16px;font-size:13px;color:#BA7517}
+.config-warn b{display:block;margin-bottom:6px;font-size:14px}</style>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
+<div id="sync-bar"></div>
 <div class="app">
 
 <div id="s-home" class="screen active" style="padding-top:0">
   <div class="app-bar">
     <div><div class="app-bar-title">Flotte CSA Ambleve</div><div class="app-bar-sub" id="home-sub">12 vehicules</div></div>
-    <button class="app-bar-btn" onclick="go('settings')">Parametres</button>
+    <button class="app-bar-btn" onclick="go('settings')">&#9881; Params</button>
   </div>
   <div style="padding:14px 16px 60px"><div id="veh-list"></div></div>
 </div>
@@ -285,10 +298,13 @@ input[type=file]{display:none}
     <button class="header-back" onclick="go('home')">&#8592;</button>
     <div class="header-title">Parametres</div>
   </div>
+  <div id="firebase-warn" class="config-warn">
+    <b>&#9888; Firebase non configure</b>
+    Copiez votre config Firebase dans le fichier index.html pour activer la synchronisation automatique GSM ↔ PC.
+  </div>
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('gen',this)">General</button>
     <button class="tab-btn"        onclick="switchTab('cond',this)">Conducteurs</button>
-    <button class="tab-btn"        onclick="switchTab('sync',this)">Sync</button>
   </div>
   <div id="tab-gen">
     <div class="field"><label>Mon nom</label><input type="text" id="s-name" placeholder="Prenom Nom"></div>
@@ -302,27 +318,23 @@ input[type=file]{display:none}
     <div id="cond-list"></div>
     <button class="btn btn-primary" onclick="saveCond()">Sauvegarder</button>
   </div>
-  <div id="tab-sync" style="display:none">
-    <div class="sync-box">
-      <p>Exportez les donnees sur un appareil, puis importez-les sur l'autre. Toutes les inspections et photos sont incluses.</p>
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="exportData()">&#8595; Exporter</button>
-        <button class="btn btn-secondary" onclick="importData()">&#8593; Importer</button>
-      </div>
-      <input type="file" id="import-in" accept="application/json" onchange="handleImport(this)">
-    </div>
-    <div style="font-size:12px;color:var(--text3);line-height:1.6;padding:4px 0">
-      <b>Comment synchroniser GSM ↔ PC :</b><br>
-      1. Sur le GSM : Parametres → Sync → Exporter<br>
-      2. Envoyez-vous le fichier .json par email ou WhatsApp<br>
-      3. Sur le PC : ouvrez le fichier HTML → Sync → Importer<br>
-      4. Toutes les inspections sont maintenant disponibles sur les deux appareils.
-    </div>
-  </div>
 </div>
 </div>
 <div id="toast"></div>
 <script>
+
+/* ═══════════════════════════════════════════════
+   FIREBASE CONFIG — remplir apres creation projet
+   ═══════════════════════════════════════════════ */
+var FIREBASE_CONFIG = {
+  apiKey:            "VOTRE_API_KEY",
+  authDomain:        "VOTRE_PROJECT.firebaseapp.com",
+  projectId:         "VOTRE_PROJECT_ID",
+  storageBucket:     "VOTRE_PROJECT.appspot.com",
+  messagingSenderId: "VOTRE_SENDER_ID",
+  appId:             "VOTRE_APP_ID"
+};
+/* ═══════════════════════════════════════════════ */
 
 var FLEET=[
   {plate:"2-DTY-610",model:"Hyundai Bayon 1.0TGDi Twist 5d",type:"bayon",driver:"Mme Laurence Goldstein",email:""},
@@ -344,23 +356,127 @@ var SEV={
   important:{label:"Important",color:"#A32D2D",bg:"#FFECEC",border:"#A32D2D44"}
 };
 var ZONE_VIEWS={
-  pChAv:["sL","sR","fr"], capot:["sL","sR","fr"],
-  avG:["sL","fr"], avD:["sR","fr"],
-  ptAvG:["sL"], ptAvD:["sR"],
-  toit:["sL","sR"],
-  ptArG:["sL"], ptArD:["sR"],
-  coffre:["sL","sR","re"], arG:["sL","re"], arD:["sR","re"],
-  pChAr:["sL","sR","re"],
-  phAvG:["fr"], phAvD:["fr"], rAvG:["fr"], rAvD:["fr"],
-  fArG:["re"], fArD:["re"]
+  pChAv:["sL","sR","fr"],capot:["sL","sR","fr"],
+  avG:["sL","fr"],avD:["sR","fr"],
+  ptAvG:["sL"],ptAvD:["sR"],toit:["sL","sR"],
+  ptArG:["sL"],ptArD:["sR"],
+  coffre:["sL","sR","re"],arG:["sL","re"],arD:["sR","re"],pChAr:["sL","sR","re"],
+  phAvG:["fr"],phAvD:["fr"],rAvG:["fr"],rAvD:["fr"],fArG:["re"],fArD:["re"]
 };
 
 var vehicles=[],settings={myName:"Michel Noel",michelEmail:"",responsableEmail:"",sharepointSite:""},inspections=[];
 var curInsp=null,curStep=1,curZone=null,curZoneLbl=null,editIdx=null,pendingPhotos=[];
 var optState={etat:"Bon",prop:"Propre",sev:"leger"};
 var curView="sL";
-var histPlate=null, viewInsp=null;
+var histPlate=null,viewInsp=null;
+var db=null, fbReady=false, fbConfigOk=false;
 
+/* ── Firebase init ── */
+function initFirebase(){
+  if(FIREBASE_CONFIG.apiKey==="VOTRE_API_KEY"){
+    fbConfigOk=false;
+    console.log("Firebase non configure");
+    return;
+  }
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db=firebase.firestore();
+    fbConfigOk=true;
+    fbReady=true;
+    showSyncBar("Connexion Firebase...", "syncing");
+    listenInspections();
+  }catch(e){
+    console.error("Firebase init error:",e);
+    fbConfigOk=false;
+  }
+}
+
+function listenInspections(){
+  if(!db) return;
+  db.collection("inspections").orderBy("date","desc").onSnapshot(function(snap){
+    var remote=[];
+    snap.forEach(function(doc){remote.push(doc.data());});
+    inspections=remote;
+    try{localStorage.setItem("csa-i",JSON.stringify(inspections));}catch(e){}
+    renderHome();
+    showSyncBar("Synchronise", "synced");
+    setTimeout(function(){hideSyncBar();},2500);
+  }, function(err){
+    console.error("Firestore error:",err);
+    showSyncBar("Erreur sync - mode local", "error");
+    setTimeout(function(){hideSyncBar();},3000);
+  });
+  db.collection("settings_csa").doc("conducteurs").get().then(function(doc){
+    if(doc.exists){
+      var data=doc.data();
+      if(data.vehicles) vehicles=data.vehicles;
+      try{localStorage.setItem("csa-v",JSON.stringify(vehicles));}catch(e){}
+      renderHome();
+    }
+  }).catch(function(){});
+}
+
+function saveInspectionToFirebase(insp){
+  if(!db||!fbConfigOk) return;
+  showSyncBar("Synchronisation...", "syncing");
+  // Compress photos before saving (Firestore 1MB limit per document)
+  var inspToSave=JSON.parse(JSON.stringify(insp));
+  var promises=[];
+  inspToSave.damages.forEach(function(d){
+    if(d.photos&&d.photos.length){
+      d.photos=d.photos.map(function(p){return compressB64(p,600,0.55);});
+    }
+  });
+  db.collection("inspections").doc(inspToSave.id).set(inspToSave)
+    .then(function(){
+      showSyncBar("Sauvegarde synchronisee", "synced");
+      setTimeout(function(){hideSyncBar();},2000);
+    })
+    .catch(function(e){
+      console.error("Save error:",e);
+      showSyncBar("Erreur sync - sauvegarde locale OK", "error");
+      setTimeout(function(){hideSyncBar();},3000);
+    });
+}
+
+function deleteInspectionFromFirebase(id){
+  if(!db||!fbConfigOk) return;
+  db.collection("inspections").doc(id).delete().catch(function(e){console.error(e);});
+}
+
+function saveConducteursToFirebase(){
+  if(!db||!fbConfigOk) return;
+  db.collection("settings_csa").doc("conducteurs").set({vehicles:vehicles}).catch(function(e){console.error(e);});
+}
+
+function compressB64(b64,maxPx,quality){
+  try{
+    var img=new Image();
+    img.src=b64;
+    var w=img.width||600,h=img.height||400;
+    if(w>maxPx){h=Math.round(h*maxPx/w);w=maxPx;}
+    if(h>maxPx){w=Math.round(w*maxPx/h);h=maxPx;}
+    var c=document.createElement("canvas");c.width=w;c.height=h;
+    c.getContext("2d").drawImage(img,0,0,w,h);
+    return c.toDataURL("image/jpeg",quality);
+  }catch(e){return b64;}
+}
+
+function showSyncBar(msg,cls){
+  var bar=document.getElementById("sync-bar");
+  bar.textContent=msg;
+  bar.className=cls+" show";
+}
+function hideSyncBar(){
+  var bar=document.getElementById("sync-bar");
+  bar.classList.remove("show");
+}
+
+function isFirebaseConfigured(){
+  return FIREBASE_CONFIG.apiKey!=="VOTRE_API_KEY";
+}
+
+/* ── App init ── */
 function init(){
   try{
     var sv=localStorage.getItem("csa-v");
@@ -372,6 +488,7 @@ function init(){
     vehicles=FLEET.map(function(v){return {plate:v.plate,model:v.model,type:v.type,driver:v.driver,email:v.email};});
   }
   renderHome();
+  initFirebase();
 }
 
 function go(id){
@@ -385,6 +502,7 @@ function go(id){
 function renderHome(){
   var due=0;
   vehicles.forEach(function(v){if(isDue(v.plate)) due++;});
+  var syncStatus=isFirebaseConfigured()?"&#128274; Firebase actif":"&#128274; Mode local";
   document.getElementById("home-sub").textContent=vehicles.length+" vehicules - "+(due>0?due+" a inspecter":"tous a jour");
   var el=document.getElementById("veh-list"); el.innerHTML="";
   vehicles.forEach(function(v){
@@ -408,9 +526,9 @@ function renderHome(){
       +'<span style="font-size:15px;font-weight:700">'+v.plate+'</span>'+badgeEl+'</div>'
       +'<div style="font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+v.model+'</div>'
       +'<div style="font-size:11px;color:var(--text3)">'+v.driver
-      +(days!==null?' · derniere inspection il y a '+days+'j':'')
-      +(totalInsp>0?' · '+totalInsp+' inspection'+(totalInsp>1?'s':''):'')
-      +'</div></div></div>';
+      +(days!==null?' · il y a '+days+'j':'')
+      +(totalInsp>0?' · '+totalInsp+' inspection'+(totalInsp>1?'s':''):'')+'</div>'
+      +'</div></div>';
     el.appendChild(div);
   });
 }
@@ -424,18 +542,16 @@ function lastInsp(p){
 function daysSince(d){return Math.floor((Date.now()-new Date(d+"T00:00"))/86400000);}
 function fmtDate(d){return new Date(d+"T00:00").toLocaleDateString("fr-BE");}
 
-/* ── Vehicle menu: inspect or view history ── */
 function showVehicleMenu(plate){
   histPlate=plate;
   var v=vehicles.find(function(x){return x.plate===plate;});
   var total=inspections.filter(function(i){return i.vehiclePlate===plate;}).length;
   document.getElementById("menu-title").textContent=v.plate;
-  document.getElementById("menu-sub").textContent=v.driver+" · "+v.model.split(" ").slice(0,2).join(" ");
+  document.getElementById("menu-sub").textContent=v.driver+" - "+v.model.split(" ").slice(0,2).join(" ");
   document.getElementById("menu-hist-btn").textContent="Historique ("+total+" inspection"+(total>1?"s":"")+")";
   go("menu");
 }
 
-/* ── History screen ── */
 function showHistory(){
   var v=vehicles.find(function(x){return x.plate===histPlate;});
   document.getElementById("hist-title").textContent=histPlate;
@@ -457,9 +573,9 @@ function showHistory(){
         +'<span style="font-size:15px;font-weight:700">'+fmtDate(insp.date)+'</span>'
         +'<span style="font-size:13px;font-weight:600;color:'+ec+'">'+insp.etatGeneral+'</span></div>'
         +'<div style="font-size:12px;color:var(--text2)">'
-        +(insp.km?'<span>'+Number(insp.km).toLocaleString("fr-BE")+' km</span> · ':'')
-        +'<span>'+insp.inspector+'</span> · '
-        +'<span>'+(dc===0?'Aucun dommage':dc+' dommage'+(dc>1?'s':''))+'</span></div>';
+        +(insp.km?Number(insp.km).toLocaleString("fr-BE")+' km · ':'')
+        +insp.inspector+' · '
+        +(dc===0?'Aucun dommage':dc+' dommage'+(dc>1?'s':''))+'</div>';
       div.addEventListener("click",function(){viewInspection(this.dataset.iid);});
       el.appendChild(div);
     });
@@ -470,14 +586,14 @@ function showHistory(){
 function viewInspection(id){
   viewInsp=inspections.find(function(i){return i.id===id;});
   if(!viewInsp) return;
-  renderReportContent(viewInsp, "view-report-body");
+  renderReportContent(viewInsp,"view-report-body");
   go("view-report");
 }
 
-function renderReportContent(i, bodyId){
+function renderReportContent(i,bodyId){
   var ec=i.etatGeneral==="Mauvais"?"#A32D2D":i.etatGeneral==="Passable"?"#993C1D":"#0F6E56";
   var eb=i.etatGeneral==="Mauvais"?"#FFECEC":i.etatGeneral==="Passable"?"#FAECE7":"#E1F5EE";
-  var body=document.getElementById(bodyId); body.innerHTML="";
+  var body=document.getElementById(bodyId);body.innerHTML="";
   function addSec(html,style){var s=document.createElement("div");s.className="report-section";if(style)s.style.cssText=style;s.innerHTML=html;body.appendChild(s);}
   addSec(
     '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px">'
@@ -487,7 +603,7 @@ function renderReportContent(i, bodyId){
     +'<div style="display:flex;flex-wrap:wrap;gap:5px 14px;font-size:13px;color:var(--text2)">'
     +'<span>Conducteur : <b style="color:var(--text)">'+i.driverName+'</b></span>'
     +'<span>Date : <b style="color:var(--text)">'+fmtDate(i.date)+'</b></span>'
-    +'<span>Km : <b style="color:var(--text)">'+(i.km?Number(i.km).toLocaleString("fr-BE")+" km":"non renseigne")+'</b></span>'
+    +'<span>Km : <b style="color:var(--text)">'+(i.km?Number(i.km).toLocaleString("fr-BE")+" km":"—")+'</b></span>'
     +'<span>Inspecteur : <b style="color:var(--text)">'+i.inspector+'</b></span></div>',
     "border-color:"+ec+"33"
   );
@@ -519,13 +635,12 @@ function renderReportContent(i, bodyId){
 function deleteInspection(){
   if(!viewInsp) return;
   if(!confirm("Supprimer cette inspection ?")) return;
+  deleteInspectionFromFirebase(viewInsp.id);
   inspections=inspections.filter(function(i){return i.id!==viewInsp.id;});
   try{localStorage.setItem("csa-i",JSON.stringify(inspections));}catch(e){}
-  toast("Inspection supprimee");
-  showHistory();
+  toast("Inspection supprimee");showHistory();
 }
 
-/* ── New inspection ── */
 function startInsp(plate){
   var v=vehicles.find(function(x){return x.plate===plate;});
   curInsp={id:Date.now()+"",vehiclePlate:v.plate,vehicleModel:v.model,vehicleType:v.type,
@@ -545,14 +660,11 @@ function startInsp(plate){
 }
 
 function resetOpts(gid,val,cls){
-  document.querySelectorAll("#"+gid+" .opt-btn").forEach(function(b){
-    b.className="opt-btn"+(b.dataset.v===val?" "+cls:"");
-  });
+  document.querySelectorAll("#"+gid+" .opt-btn").forEach(function(b){b.className="opt-btn"+(b.dataset.v===val?" "+cls:"");});
 }
 function selOpt(btn,group,cls){
   document.querySelectorAll("#og-"+group+" .opt-btn").forEach(function(b){b.className="opt-btn";});
-  btn.className="opt-btn "+cls;
-  optState[group]=btn.dataset.v;
+  btn.className="opt-btn "+cls;optState[group]=btn.dataset.v;
 }
 function goStep(n){
   if(!curInsp) return;
@@ -574,26 +686,23 @@ function switchView(v,btn){
   document.querySelectorAll(".car-view-box").forEach(function(el){el.classList.remove("shown");});
   document.getElementById("cv-"+v).classList.add("shown");
 }
-
 function zoneClick(el){openDmg(el.dataset.zone,el.dataset.lbl,null);}
 
 function openDmg(zone,lbl,idx){
   curZone=zone;curZoneLbl=lbl;editIdx=idx;pendingPhotos=[];
-  document.getElementById("dmg-title").textContent=(idx!==null)?"Modifier le dommage":"Ajouter un dommage";
+  document.getElementById("dmg-title").textContent=(idx!==null)?"Modifier":"Ajouter un dommage";
   document.getElementById("dmg-zone-lbl").textContent="Zone : "+lbl;
   document.getElementById("dmg-save").textContent=(idx!==null)?"Modifier":"Ajouter";
   document.getElementById("photo-in").value="";
   if(idx!==null){
-    var d=curInsp.damages[idx];
-    optState.sev=d.severity;
+    var d=curInsp.damages[idx];optState.sev=d.severity;
     resetOpts("og-sev",d.severity,d.severity==="leger"?"sel-amber":"sel-red");
     document.getElementById("dmg-desc").value=d.desc;
     document.getElementById("dmg-loc").value=d.location||"";
     pendingPhotos=d.photos?d.photos.slice():[];
   }else{
     optState.sev="leger";resetOpts("og-sev","leger","sel-amber");
-    document.getElementById("dmg-desc").value="";
-    document.getElementById("dmg-loc").value="";
+    document.getElementById("dmg-desc").value="";document.getElementById("dmg-loc").value="";
   }
   renderPendingPhotos();go("damage");
 }
@@ -610,14 +719,10 @@ function handlePhotos(input){
         if(h>mH){w=Math.round(w*mH/h);h=mH;}
         var c=document.createElement("canvas");c.width=w;c.height=h;
         c.getContext("2d").drawImage(img,0,0,w,h);
-        pendingPhotos.push(c.toDataURL("image/jpeg",0.82));
-        renderPendingPhotos();
-      };
-      img.src=e.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-  input.value="";
+        pendingPhotos.push(c.toDataURL("image/jpeg",0.82));renderPendingPhotos();
+      };img.src=e.target.result;
+    };reader.readAsDataURL(file);
+  });input.value="";
 }
 function renderPendingPhotos(){
   var g=document.getElementById("photo-grid");g.innerHTML="";
@@ -653,8 +758,7 @@ function renderDmgList(){
   Object.keys(zc).forEach(function(zone){
     document.querySelectorAll('.hz[data-zone="'+zone+'"]').forEach(function(el){el.classList.add("dmgd");});
     (ZONE_VIEWS[zone]||[]).forEach(function(view){
-      var container=document.getElementById("cv-"+view);
-      if(!container) return;
+      var container=document.getElementById("cv-"+view);if(!container) return;
       var el=container.querySelector('.hz[data-zone="'+zone+'"]');
       var g=document.getElementById("d-"+view);
       if(el&&g){
@@ -699,67 +803,26 @@ function renderDmgList(){
     eb.textContent="Edit";eb.style.cssText="padding:4px 8px;border-radius:6px;border:1px solid #ccc;background:white;font-size:11px;cursor:pointer";
     eb.dataset.idx=String(i);
     eb.addEventListener("click",function(){var di=parseInt(this.dataset.idx);openDmg(curInsp.damages[di].zone,curInsp.damages[di].zoneLabel,di);});
-    var db=document.createElement("button");
-    db.textContent="Supp";db.style.cssText="padding:4px 8px;border-radius:6px;border:1px solid #E24B4A55;background:white;font-size:11px;cursor:pointer;color:#A32D2D";
-    db.dataset.idx=String(i);
-    db.addEventListener("click",function(){delDmg(parseInt(this.dataset.idx));});
-    btns.appendChild(eb);btns.appendChild(db);div.appendChild(btns);wrap.appendChild(div);
+    var db2=document.createElement("button");
+    db2.textContent="Supp";db2.style.cssText="padding:4px 8px;border-radius:6px;border:1px solid #E24B4A55;background:white;font-size:11px;cursor:pointer;color:#A32D2D";
+    db2.dataset.idx=String(i);
+    db2.addEventListener("click",function(){delDmg(parseInt(this.dataset.idx));});
+    btns.appendChild(eb);btns.appendChild(db2);div.appendChild(btns);wrap.appendChild(div);
   });
   list.appendChild(wrap);
 }
 
 function showReport(){
   curInsp.notes=document.getElementById("f-notes").value;
-  renderReportContent(curInsp, "report-body");
-  go("report");
+  renderReportContent(curInsp,"report-body");go("report");
 }
 
 function finishInsp(){
   inspections=inspections.filter(function(x){return x.id!==curInsp.id;});
   inspections.push(curInsp);
-  try{localStorage.setItem("csa-i",JSON.stringify(inspections));}
-  catch(e){toast("Stockage plein - reduire les photos");}
+  try{localStorage.setItem("csa-i",JSON.stringify(inspections));}catch(e){}
+  saveInspectionToFirebase(curInsp);
   toast("Inspection sauvegardee !");curInsp=null;go("home");
-}
-
-/* ── SYNC: Export / Import ── */
-function exportData(){
-  var data={vehicles:vehicles,inspections:inspections,settings:settings,exportedAt:new Date().toISOString()};
-  var json=JSON.stringify(data);
-  var blob=new Blob([json],{type:"application/json"});
-  var url=URL.createObjectURL(blob);
-  var a=document.createElement("a");
-  a.href=url;
-  var d=new Date().toISOString().slice(0,10);
-  a.download="flotte-csa-"+d+".json";
-  a.click();
-  URL.revokeObjectURL(url);
-  toast("Fichier exporte !");
-}
-function importData(){
-  document.getElementById("import-in").click();
-}
-function handleImport(input){
-  var file=input.files[0];
-  if(!file) return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      var data=JSON.parse(e.target.result);
-      if(!data.inspections||!data.vehicles){toast("Fichier invalide");return;}
-      if(!confirm("Remplacer toutes les donnees locales par le fichier importe ?")) return;
-      vehicles=data.vehicles;
-      inspections=data.inspections;
-      if(data.settings) settings=data.settings;
-      localStorage.setItem("csa-v",JSON.stringify(vehicles));
-      localStorage.setItem("csa-i",JSON.stringify(inspections));
-      localStorage.setItem("csa-s",JSON.stringify(settings));
-      toast("Import reussi - "+inspections.length+" inspections chargees");
-      renderHome();
-    }catch(er){toast("Erreur lecture fichier");}
-  };
-  reader.readAsText(file);
-  input.value="";
 }
 
 function renderSettings(){
@@ -767,6 +830,8 @@ function renderSettings(){
   document.getElementById("s-email").value=settings.michelEmail||"";
   document.getElementById("s-resp").value=settings.responsableEmail||"";
   document.getElementById("s-sp").value=settings.sharepointSite||"";
+  var warn=document.getElementById("firebase-warn");
+  if(warn) warn.style.display=isFirebaseConfigured()?"none":"block";
 }
 function renderCond(){
   var el=document.getElementById("cond-list");el.innerHTML="";
@@ -789,6 +854,7 @@ function saveSettings(){
 function saveCond(){
   vehicles.forEach(function(v,i){var el=document.getElementById("ce"+i);if(el)v.email=el.value.trim();});
   try{localStorage.setItem("csa-v",JSON.stringify(vehicles));}catch(e){}
+  saveConducteursToFirebase();
   toast("Conducteurs sauvegardes !");
 }
 function switchTab(tab,btn){

@@ -80,7 +80,19 @@ input[type=file]{display:none}
 #sync-bar.error{background:#A32D2D;color:white}
 /* Config warning */
 .config-warn{background:#FFF7E0;border:1px solid #BA751744;border-radius:var(--radius-lg);padding:14px;margin-bottom:16px;font-size:13px;color:#BA7517}
-.config-warn b{display:block;margin-bottom:6px;font-size:14px}</style>
+.config-warn b{display:block;margin-bottom:6px;font-size:14px}
+@media print {
+  #sync-bar, .header, .steps, .view-tabs, .car-view-box, .btn-stack, .btn-row,
+  #s-home, #s-menu, #s-history, #s-form, #s-damage, #s-settings, #s-view-report,
+  .app-bar, #toast { display: none !important; }
+  #s-report { display: block !important; padding: 0 !important; }
+  .report-section { break-inside: avoid; border: 1px solid #ccc !important; }
+  body { background: white !important; font-size: 13px; }
+  .dmg-photos img { max-width: 45%; border-radius: 4px; }
+  .print-header { display: block !important; }
+}
+.print-header { display: none; }
+</style>
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -288,8 +300,12 @@ input[type=file]{display:none}
   </div>
   <div id="report-body"></div>
   <div class="btn-stack" style="margin-top:16px">
-    <button class="btn btn-primary"   onclick="finishInsp()">Terminer et sauvegarder</button>
-    <button class="btn btn-secondary" onclick="go('form')">Modifier</button>
+    <button class="btn btn-primary"   onclick="finishInsp()">&#10003; Terminer et sauvegarder</button>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="printReport()" style="background:#185FA5;color:white;border:none">&#128438; Imprimer / PDF</button>
+      <button class="btn btn-secondary" onclick="emailReport()" style="background:#0F6E56;color:white;border:none">&#9993; Envoyer par email</button>
+    </div>
+    <button class="btn btn-secondary" onclick="go('form')">&#8592; Modifier</button>
   </div>
 </div>
 
@@ -869,6 +885,59 @@ function toast(msg,dur){
   el.textContent=msg;el.classList.add("show");
   setTimeout(function(){el.classList.remove("show");},dur);
 }
+
+function printReport(){
+  window.print();
+}
+
+function emailReport(){
+  if(!curInsp){ toast("Aucune inspection en cours"); return; }
+  var i=curInsp;
+  var to=[];
+  if(i.driverEmail) to.push(i.driverEmail);
+  if(settings.michelEmail) to.push(settings.michelEmail);
+  if(settings.responsableEmail) to.push(settings.responsableEmail);
+  var subject="Rapport inspection "+i.vehiclePlate+" - "+fmtDate(i.date);
+  var body="Rapport d'inspection vehicule\n";
+  body+="========================\n\n";
+  body+="Plaque : "+i.vehiclePlate+"\n";
+  body+="Modele : "+i.vehicleModel+"\n";
+  body+="Conducteur : "+i.driverName+"\n";
+  body+="Date : "+fmtDate(i.date)+"\n";
+  body+="Kilometrage : "+(i.km?Number(i.km).toLocaleString("fr-BE")+" km":"non renseigne")+"\n";
+  body+="Inspecteur : "+i.inspector+"\n\n";
+  body+="ETAT GENERAL\n";
+  body+="------------\n";
+  body+="Etat : "+i.etatGeneral+"\n";
+  body+="Proprete : "+i.proprete+"\n\n";
+  if(i.damages.length){
+    body+="DOMMAGES CONSTATES ("+i.damages.length+")\n";
+    body+="---------------------------\n";
+    i.damages.forEach(function(d,n){
+      body+=(n+1)+". "+SEV[d.severity].label+" - "+d.zoneLabel+"\n";
+      if(d.location) body+="   Localisation : "+d.location+"\n";
+      body+="   Description : "+d.desc+"\n";
+      if(d.photos&&d.photos.length) body+="   Photos : "+d.photos.length+" photo"+(d.photos.length>1?"s":"")+" jointe"+(d.photos.length>1?"s":"")+"\n";
+      body+="\n";
+    });
+  } else {
+    body+="Aucun dommage constate.\n\n";
+  }
+  if(i.notes) body+="REMARQUES\n---------\n"+i.notes+"\n\n";
+  body+="Centre de Sante de l'Ambleve\n";
+  body+="Rapport genere le "+new Date().toLocaleString("fr-BE");
+  var mailto="mailto:"+to.join(",")+
+    "?subject="+encodeURIComponent(subject)+
+    "&body="+encodeURIComponent(body);
+  if(mailto.length>2000){
+    // Fallback if too long: open without body
+    mailto="mailto:"+to.join(",")+
+      "?subject="+encodeURIComponent(subject)+
+      "&body="+encodeURIComponent("Rapport d'inspection "+i.vehiclePlate+" du "+fmtDate(i.date)+"\n\nVeuillez consulter l'application pour le rapport complet avec photos.\n\n"+i.damages.length+" dommage"+(i.damages.length>1?"s":"")+" constate"+(i.damages.length>1?"s":"")+".");
+  }
+  window.location.href=mailto;
+}
+
 init();
 
 </script>
